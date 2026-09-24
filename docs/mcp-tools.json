@@ -3,7 +3,19 @@
     "name": "get_notam_status",
     "description": "Check local configuration without contacting FAA or revealing credentials.",
     "inputSchema": {
-      "properties": {},
+      "properties": {
+        "environment": {
+          "default": "auto",
+          "description": "Auto prefers production with configured staging fallback for new requests. Choose staging when the user requests test data, or production for production only. Explicit selections never fall back. Continuations/downloads retain their origin.",
+          "enum": [
+            "auto",
+            "production",
+            "staging"
+          ],
+          "title": "Environment",
+          "type": "string"
+        }
+      },
       "title": "get_notam_statusArguments",
       "type": "object"
     },
@@ -279,6 +291,17 @@
             }
           ],
           "default": null
+        },
+        "environment": {
+          "default": "auto",
+          "description": "Auto prefers production with configured staging fallback for new requests. Choose staging when the user requests test data, or production for production only. Explicit selections never fall back. Continuations/downloads retain their origin.",
+          "enum": [
+            "auto",
+            "production",
+            "staging"
+          ],
+          "title": "Environment",
+          "type": "string"
         }
       },
       "required": [
@@ -354,6 +377,17 @@
       "properties": {
         "filters": {
           "$ref": "#/$defs/ChecklistQuery"
+        },
+        "environment": {
+          "default": "auto",
+          "description": "Auto prefers production with configured staging fallback for new requests. Choose staging when the user requests test data, or production for production only. Explicit selections never fall back. Continuations/downloads retain their origin.",
+          "enum": [
+            "auto",
+            "production",
+            "staging"
+          ],
+          "title": "Environment",
+          "type": "string"
         }
       },
       "required": [
@@ -396,6 +430,17 @@
       "properties": {
         "filters": {
           "$ref": "#/$defs/LocationSeriesQuery"
+        },
+        "environment": {
+          "default": "auto",
+          "description": "Auto prefers production with configured staging fallback for new requests. Choose staging when the user requests test data, or production for production only. Explicit selections never fall back. Continuations/downloads retain their origin.",
+          "enum": [
+            "auto",
+            "production",
+            "staging"
+          ],
+          "title": "Environment",
+          "type": "string"
         }
       },
       "required": [
@@ -433,6 +478,17 @@
           ],
           "default": null,
           "title": "Classification"
+        },
+        "environment": {
+          "default": "auto",
+          "description": "Auto prefers production with configured staging fallback for new requests. Choose staging when the user requests test data, or production for production only. Explicit selections never fall back. Continuations/downloads retain their origin.",
+          "enum": [
+            "auto",
+            "production",
+            "staging"
+          ],
+          "title": "Environment",
+          "type": "string"
         }
       },
       "title": "get_notam_initial_loadArguments",
@@ -446,11 +502,22 @@
   },
   {
     "name": "download_notam_content",
-    "description": "Download an FAA content path into a new file in the configured downloads directory.\n\nUse the data.url from a bulk request. Returns the local file path and byte count;\nit does not parse the compressed NOTAMs. Only the configured FAA host is permitted.\n",
+    "description": "Download an FAA content path into a new file in the configured downloads directory.\n\nUse the data.url from a bulk request. Returns the local file path and byte count;\nit does not parse the compressed NOTAMs. Pass the originating request's environment.\nAbsolute URLs can identify the configured environment; relative paths require an\nexplicit environment when both are configured. Downloads never fall back.\n",
     "inputSchema": {
       "properties": {
         "content_path": {
           "title": "Content Path",
+          "type": "string"
+        },
+        "environment": {
+          "default": "auto",
+          "description": "Auto prefers production with configured staging fallback for new requests. Choose staging when the user requests test data, or production for production only. Explicit selections never fall back. Continuations/downloads retain their origin.",
+          "enum": [
+            "auto",
+            "production",
+            "staging"
+          ],
+          "title": "Environment",
           "type": "string"
         }
       },
@@ -474,6 +541,17 @@
       "properties": {
         "identifier": {
           "title": "Identifier",
+          "type": "string"
+        },
+        "environment": {
+          "default": "auto",
+          "description": "Auto prefers production with configured staging fallback for new requests. Choose staging when the user requests test data, or production for production only. Explicit selections never fall back. Continuations/downloads retain their origin.",
+          "enum": [
+            "auto",
+            "production",
+            "staging"
+          ],
+          "title": "Environment",
           "type": "string"
         }
       },
@@ -543,6 +621,17 @@
             }
           ],
           "default": null
+        },
+        "environment": {
+          "default": "auto",
+          "description": "Auto prefers production with configured staging fallback for new requests. Choose staging when the user requests test data, or production for production only. Explicit selections never fall back. Continuations/downloads retain their origin.",
+          "enum": [
+            "auto",
+            "production",
+            "staging"
+          ],
+          "title": "Environment",
+          "type": "string"
         }
       },
       "required": [
@@ -649,6 +738,17 @@
             }
           ],
           "default": null
+        },
+        "environment": {
+          "default": "auto",
+          "description": "Auto prefers production with configured staging fallback for new requests. Choose staging when the user requests test data, or production for production only. Explicit selections never fall back. Continuations/downloads retain their origin.",
+          "enum": [
+            "auto",
+            "production",
+            "staging"
+          ],
+          "title": "Environment",
+          "type": "string"
         }
       },
       "required": [
@@ -666,11 +766,22 @@
   },
   {
     "name": "continue_notam_route_search",
-    "description": "Continue a saved route search after its retry delay, without redoing completed circles.\n\nSearch progress survives server restarts. A completed search returns its saved snapshot;\ncall notams_along_route to start a fresh search when current data is needed.\n",
+    "description": "Continue a saved route search after its retry delay, without redoing completed circles.\n\nSearch progress survives server restarts. A completed search returns its saved snapshot;\ncall notams_along_route to start a fresh search when current data is needed.\nAuto resumes in the saved environment; an explicit environment must match it.\n",
     "inputSchema": {
       "properties": {
         "search_id": {
           "title": "Search Id",
+          "type": "string"
+        },
+        "environment": {
+          "default": "auto",
+          "description": "Auto prefers production with configured staging fallback for new requests. Choose staging when the user requests test data, or production for production only. Explicit selections never fall back. Continuations/downloads retain their origin.",
+          "enum": [
+            "auto",
+            "production",
+            "staging"
+          ],
+          "title": "Environment",
           "type": "string"
         }
       },

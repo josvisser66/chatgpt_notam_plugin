@@ -45,6 +45,7 @@ class RouteSearches:
         job = {
             "search_id": identifier,
             "account": self.api.limiter.namespace,
+            "environment": self.api.environment,
             "route": resolved,
             "corridor_half_width_nm": width_nm,
             "circles": circles,
@@ -56,28 +57,45 @@ class RouteSearches:
         }
         self.directory.mkdir(parents=True, exist_ok=True)
         atomic_json(self.directory / f"{identifier}.json", job)
-        return await self.resume(identifier)
+        try:
+            return await self.resume(identifier, starting=True)
+        except NmsError:
+            # No successful circle exists when an availability failure is raised here.
+            (self.directory / f"{identifier}.json").unlink(missing_ok=True)
+            raise
 
-    async def resume(self, identifier: str) -> dict:
+    @staticmethod
+    def read_job(directory: Path, identifier: str) -> dict:
         if not re.fullmatch(r"[a-f0-9]{32}", identifier):
             raise NmsError("Invalid route search ID.")
-        path = self.directory / f"{identifier}.json"
+        path = directory / f"{identifier}.json"
         if not path.is_file():
             raise NmsError("Route search was not found. Start a new route search.")
+        try:
+            job = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(job, dict) or "account" not in job:
+                raise ValueError
+            return job
+        except (ValueError, UnicodeError):
+            raise NmsError("Saved route search is invalid. Start a new route search.") from None
+
+    async def resume(self, identifier: str, *, starting: bool = False) -> dict:
+        self.read_job(self.directory, identifier)
+        path = self.directory / f"{identifier}.json"
         with path.with_suffix(".lock").open("a") as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise NmsError("This route search is already running.", retry_after=2) from None
             try:
-                job = json.loads(path.read_text(encoding="utf-8"))
+                job = self.read_job(self.directory, identifier)
                 if job["account"] != self.api.limiter.namespace:
                     raise NmsError("This search belongs to a different FAA environment or account.")
-                return await self._advance(path, job)
+                return await self._advance(path, job, starting=starting)
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
 
-    async def _advance(self, path: Path, job: dict) -> dict:
+    async def _advance(self, path: Path, job: dict, *, starting: bool = False) -> dict:
         error = None
         retry_after = None
         request_count = 0
@@ -92,6 +110,8 @@ class RouteSearches:
                 if not isinstance(features, list) or any(not isinstance(f, dict) for f in features):
                     raise NmsError("FAA did not return a GeoJSON list for a route search circle.")
             except NmsError as exc:
+                if starting and job["completed"] == 0 and exc.fallback_allowed:
+                    raise
                 if (
                     exc.retry_after
                     and exc.retry_after <= 2
@@ -134,6 +154,7 @@ class RouteSearches:
             }
         output = {
             "search_id": job["search_id"],
+            "environment": job.get("environment", self.api.environment),
             "route": job["route"],
             "corridor_half_width_nm": job["corridor_half_width_nm"],
             "coverage_complete": job["completed"] == len(job["circles"]),

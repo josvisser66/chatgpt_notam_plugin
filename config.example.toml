@@ -1,15 +1,24 @@
-[faa]
-# FAA KEY = OAuth client ID; FAA SECRET = OAuth client secret.
-key = "REPLACE_WITH_FAA_KEY"
-secret = "REPLACE_WITH_FAA_SECRET"
+# Configure one or both environments. FAA KEY = OAuth client ID;
+# FAA SECRET = OAuth client secret. Each environment uses its own identity.
+# Missing/empty/REPLACE_ credentials leave a profile unconfigured.
+# Auto requests prefer production and can fall back to configured staging.
+# Ask "Use staging" to select staging explicitly, without fallback.
 
-# Use the host URL (no /nmsapi or /v1 suffix).
-# Pre-production:
-environment_url = "https://api-staging.cgifederal-aim.com"
-# Production: https://api-nms.aim.faa.gov
-# FIT: https://api-fit.cgifederal-aim.com
-# Authentication and API URLs are derived from the same environment URL.
+[faa.production]
+key = "REPLACE_WITH_PRODUCTION_FAA_KEY"
+secret = "REPLACE_WITH_PRODUCTION_FAA_SECRET"
+# Host only, without /nmsapi or /v1.
+environment_url = "https://api-nms.aim.faa.gov"
 # Optional override if FAA provides a different authorization URL:
+# auth_url = "https://api-nms.aim.faa.gov/v1/auth/token"
+response_format = "GEOJSON"
+timeout_seconds = 12
+
+[faa.staging]
+key = "REPLACE_WITH_STAGING_FAA_KEY"
+secret = "REPLACE_WITH_STAGING_FAA_SECRET"
+environment_url = "https://api-staging.cgifederal-aim.com"
+# FIT/SIT hosts may also be configured in this test profile if FAA authorizes them.
 # auth_url = "https://api-staging.cgifederal-aim.com/v1/auth/token"
 response_format = "GEOJSON"
 timeout_seconds = 12
@@ -27,7 +36,7 @@ max_download_bytes = 500000000
 # Default limits follow the FAQ. Production/custom hosts: 180 seconds between
 # data calls. Known FAA test hosts: 1 second. Content calls: 0.5 seconds.
 # Delta calls: 180 seconds. Bulk calls: 86400 seconds across classifications.
-# Override only to match the limits FAA has approved for your account:
+# Overrides apply to BOTH profiles; use only limits FAA has approved for both accounts:
 # [limits]
 # data_interval_seconds = 180
 # content_interval_seconds = 0.5

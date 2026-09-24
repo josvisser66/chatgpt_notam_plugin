@@ -1,7 +1,8 @@
 # FAA NOTAM plugin for Codex
 
 A local MCP server over **stdio**, with a Codex plugin package in `plugins/faa-notam`.
-The FAA key, secret and environment URL come from one local TOML configuration file.
+Separate production and staging identities (FAA key/secret) and URLs live in one local
+TOML configuration file. Requests prefer production and can fall back to staging.
 No hosted service or OpenAI API key is required.
 
 Download or clone this repository into any directory you choose. Setup detects that folder's
@@ -10,13 +11,16 @@ Each user supplies their own FAA credentials and installs the plugin locally.
 
 Start with [FAA API access](#register-with-the-faa-for-api-access), then
 [download and configure](#local-setup), and [connect to Codex](#connect-to-codex).
-The default environment is **pre-production**. Its results are test data and must
-not be treated as a production flight briefing. This is an independent integration,
+**Production is preferred when configured and available.** Otherwise, configured staging
+can be used, with the fallback disclosed in the result. Staging results are test data and
+must not be treated as a production flight briefing. This is an independent integration,
 not an FAA-issued plugin.
 
 ## What you can ask
 
 - “Show NOTAMs within 25 NM of KSEA.”
+- “Use the staging environment to show NOTAMs within 25 NM of KPAO.”
+- “Use production only to get NOTAMs for KSEA.”
 - “Find NOTAMs in a corridor 10 NM on each side of KSEA–KPDX.”
 - “Search KSFO, VPAAQ, 37.5/-122.3, then KSJC, within 5 NM of the route.”
 - “Use 5,500 feet MSL and omit NOTAMs whose upper limits are below that altitude.”
@@ -48,10 +52,10 @@ environment; downloading the plugin does not grant FAA access.
    documentation, authorized environment URL, credentials, and account request
    limits. FAA determines eligibility and approval; this project cannot promise
    an approval time or production access.
-4. Enter the issued **KEY (OAuth client ID)** in `faa.key`, **SECRET (OAuth client
-   secret)** in `faa.secret`, and the matching host in `faa.environment_url`, as
-   shown below. Use the credentials issued for that environment. Changing the
-   host alone does not grant production access.
+4. Enter the issued **KEY (OAuth client ID)**, **SECRET (OAuth client secret)**,
+   and matching host under `[faa.production]` or `[faa.staging]`, as shown below.
+   If approved for both, configure both identities separately. Credentials are never
+   copied between environments; changing a host alone does not grant production access.
 
 NMS website sign-in through Login.gov or MyAccess is a separate flow; those login
 details do not belong in this plugin's KEY/SECRET fields. Keep API credentials in
@@ -97,14 +101,22 @@ python3 -m venv .venv
 ```
 
 `init` creates `config.toml` with owner-only permissions and never overwrites an
-existing file. Open the newly created file locally and replace `faa.key` and
-`faa.secret` with the values FAA supplied separately. The FAA KEY is the OAuth
-client ID. Select the environment for which FAA issued those credentials:
+existing file. Open it locally and replace the placeholders for each environment
+FAA has approved. You can configure production, staging, or both. A profile with
+missing, empty, or `REPLACE_` credentials is unconfigured and is skipped in automatic
+selection. A missing or empty URL also leaves that profile unconfigured. At least
+one profile must have a usable key, secret, and URL.
 
 ```toml
-[faa]
-key = "REPLACE_WITH_FAA_KEY"
-secret = "REPLACE_WITH_FAA_SECRET"
+[faa.production]
+key = "REPLACE_WITH_PRODUCTION_FAA_KEY"
+secret = "REPLACE_WITH_PRODUCTION_FAA_SECRET"
+environment_url = "https://api-nms.aim.faa.gov"
+response_format = "GEOJSON"
+
+[faa.staging]
+key = "REPLACE_WITH_STAGING_FAA_KEY"
+secret = "REPLACE_WITH_STAGING_FAA_SECRET"
 environment_url = "https://api-staging.cgifederal-aim.com"
 response_format = "GEOJSON"
 
@@ -116,17 +128,69 @@ downloads_directory = "state/downloads"
 `config.toml`, state, cached navigation records, and downloads are ignored by Git.
 The plugin package contains launcher paths only; it does not contain credentials.
 
-| Environment | `environment_url` |
+| Profile | Typical `environment_url` |
 | --- | --- |
-| Pre-production (default) | `https://api-staging.cgifederal-aim.com` |
-| Production | `https://api-nms.aim.faa.gov` |
-| FIT | `https://api-fit.cgifederal-aim.com` |
+| Production (preferred) | `https://api-nms.aim.faa.gov` |
+| Staging / pre-production | `https://api-staging.cgifederal-aim.com` |
+| Staging profile with FAA-authorized FIT access | `https://api-fit.cgifederal-aim.com` |
 
-Use the host only, without `/nmsapi` or `/v1`. Authentication is derived as
-`{environment_url}/v1/auth/token`; data requests use
-`{environment_url}/nmsapi/v1/...`. An optional `faa.auth_url` accommodates a
-different authorization URL supplied by FAA. No environment fallback occurs.
-Change the file and restart the MCP server to change environments or credentials.
+Use the host only, without `/nmsapi` or `/v1`. Each profile derives authentication
+as `{environment_url}/v1/auth/token` and data requests as
+`{environment_url}/nmsapi/v1/...`. An optional `auth_url` **inside that profile**
+accommodates a different authorization URL supplied by FAA. `response_format`,
+`timeout_seconds`, and `max_response_bytes` can also be set per profile.
+Restart the MCP server or start a new Codex task after changing credentials or URLs.
+
+### Environment selection and fallback
+
+All tools accept `environment: "auto" | "production" | "staging"`; omitted means
+`"auto"`. In ordinary language, ask **“Use staging to show NOTAMs within 25 NM of
+KPAO.”** Codex passes `environment: "staging"` for that request.
+
+- **Auto:** try configured production first. Use configured staging if production
+  has no complete credentials, or the production request fails because of authentication/
+  authorization, connection/timeout, a server error (HTTP 5xx), or a malformed response.
+  OAuth HTTP 400 is also treated as an authentication failure. Availability is tested
+  by the actual request; there is no extra probe. A later new request tries production
+  again. Each call makes at most one fallback attempt.
+- **Explicit staging:** use only staging, even when production is available. If staging
+  is unconfigured or fails, report that error. The selection applies to this request;
+  it does not rewrite the configuration or change later requests.
+- **Explicit production:** use only production and return its error if unavailable.
+- **No fallback for rate limits or query problems:** HTTP 429, local request intervals,
+  other data-endpoint HTTP 4xx, failed/incomplete FAA query envelopes, and local file or
+  size-limit errors stay errors. Wait the returned retry delay or correct the query.
+  An empty successful response is a successful production result, not a fallback trigger.
+
+Results include `requested_environment`, the actual `environment`, `environment_url`,
+and `retrieved_at`. Automatic staging use also includes `fallback.from` and a safe
+`fallback.reason`. Always identify staging as test data, including after fallback.
+The configuration status tool reports both profiles and the preferred one without
+contacting FAA; “configured” does not mean authentication or availability was tested.
+Tokens and persistent request limits are separate for each host/client identity.
+
+**Routes:** automatic fallback is permitted only before the first successful circle.
+Once any circle has been retrieved, the saved search remains tied to that environment
+and account. Partial results never mix production and staging. Continuations using
+`"auto"` select the saved environment, including after a restart; an explicit environment
+must match. Start a new search if you want to change environments. Coordinate lookup
+uses public NASR data independently of either NMS environment.
+
+**Bulk downloads:** pass the `environment` returned by the initial-load or bulk search
+when calling `download_notam_content`. Downloads never fall back because content tokens
+belong to their originating environment. An absolute content URL can identify a uniquely
+matching configured host; with both profiles configured, a relative path requires an
+explicit environment. Credentials and bearer tokens are never forwarded to another host.
+
+### Existing single-environment configurations
+
+The previous `[faa]` layout with `key`, `secret`, and `environment_url` still works.
+Known FAA staging/FIT/SIT hosts are classified as staging; production and custom hosts
+are classified as production. To use both profiles, rename the existing `[faa]` section
+to `[faa.staging]` (or `[faa.production]` for production), retaining its values, then add
+the other profile. Do not mix legacy credentials at `[faa]` with the new nested sections.
+For a custom test host, use `[faa.staging]` so its role is explicit. Invalid URLs and
+unknown configuration fields are errors; they are not silently skipped.
 
 See `config.example.toml` for all optional settings. Relative state paths resolve
 beside the configuration file. `NOTAM_CONFIG` or `--config /absolute/path/config.toml`
@@ -185,8 +249,8 @@ the plugin discoverable; the app installation step activates it.
 > Check my NOTAM plugin configuration.
 
 Then try “Show NOTAMs within 25 NM of KSEA.” The status check validates local
-configuration; the first search also tests FAA authentication. The default is
-pre-production, so its results are test data. If the plugin does not appear in a
+configuration; the first search also tests FAA authentication. Results state the
+actual environment and disclose any fallback. Staging results are test data. If the plugin does not appear in a
 new task, restart Codex and check that FAA NOTAM is enabled in the plugin UI.
 See [OpenAI's local plugin guidance](https://developers.openai.com/plugins/build/plugins).
 
@@ -293,7 +357,8 @@ The command builds local files; it does not publish a GitHub release.
 | Setup says the configuration or environment is not ready | Run `.venv/bin/python -m pip install -e .`, then `check-config` using the same `--config` path as setup. Replace the example KEY/SECRET. |
 | Codex CLI is missing or lacks `plugin add` | Use `--register-only` and install through the app, or update the CLI. |
 | FAA NOTAM does not appear | Restart the app, select your personal marketplace in Plugins, install/enable FAA NOTAM, and start a new task. |
-| Configuration is valid but FAA rejects authentication | Confirm the KEY/SECRET and host match the environment FAA approved. Ask the FAA API-access contact if access has not been enabled. |
+| Auto results use staging unexpectedly | Check `fallback.reason` and the configuration status for production. Confirm production KEY/SECRET and URLs match FAA authorization. Use an explicit production request to diagnose without fallback. |
+| An explicit staging request fails | Fill in `[faa.staging]` with its own FAA-issued KEY/SECRET and URLs, then restart the server. Production credentials are not substituted. |
 | A query is rate limited | Wait the returned `retry_after_seconds`; resume route searches with their existing `search_id`. |
 | A result contains a local path instead of notices | The complete result was saved because of its size. Ask Codex to read the returned file; this does not mean there are no NOTAMs. |
 | The downloaded folder was moved | Recreate its `.venv` and reconnect using `--install` or `--register-only` with the correct configuration path. |
@@ -343,7 +408,7 @@ data pull interval of three minutes, at most one delta pull per three minutes,
 and at most one bulk pull per day. Bulk limits are shared across classifications.
 The default content interval is 0.5 seconds. Unknown/custom environment hosts
 use the conservative production data interval. Overrides in `[limits]` should
-match the rate FAA has approved for your account.
+apply to both profiles and should match rates FAA has approved for both accounts.
 
 Rate reservations persist in SQLite across server restarts and local processes
 using the same state file. Separate computers or separate state files do not
@@ -377,6 +442,12 @@ authenticated FAA content endpoint. Downloaded gzip files remain compressed.
 | `get_notam_initial_load` | Request a protected AIXM bulk content path |
 | `download_notam_content` | Save authenticated bulk content locally |
 
+For example, an airport-radius tool request can explicitly select staging:
+
+```json
+{"airport": "KPAO", "radius_nm": 25, "environment": "staging"}
+```
+
 The tool schemas are exported to `docs/mcp-tools.json`. Checks:
 
 ```sh
@@ -386,7 +457,8 @@ The tool schemas are exported to `docs/mcp-tools.json`. Checks:
 
 Tests use synthetic FAA responses and cover authentication, secret handling,
 filter dependencies, rate limits, downloads, geometry, altitude, resumable
-searches, portable installation, and a real MCP stdio handshake. Automated tests
+searches, environment selection/fallback and isolation, portable installation, and a real
+MCP stdio handshake. Automated tests
 do not contact FAA or require credentials. Public FAA NASR downloads and
 identifier lookup have been verified separately.
 

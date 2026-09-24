@@ -10,12 +10,17 @@
   "interface": {
     "displayName": "FAA NOTAM",
     "shortDescription": "Search FAA NOTAMs from Codex.",
-    "longDescription": "Find NOTAMs around airports or along flight corridors using FAA airport and VFR waypoint data. Filter out notices below a specified altitude, retrieve checklists and save bulk snapshots. Runs locally over MCP stdio with credentials and the FAA environment URL in a local configuration file.",
+    "longDescription": "Find NOTAMs around airports or along flight corridors using FAA airport and VFR waypoint data. Filter by altitude, retrieve checklists and save bulk snapshots. Separate production and staging credentials and URLs are stored locally. Prefers production with disclosed staging fallback, or select staging explicitly. Runs locally over MCP stdio.",
     "developerName": "josvisser66",
     "websiteURL": "https://github.com/josvisser66/chatgpt_notam_plugin",
     "category": "Productivity",
     "capabilities": [],
-    "defaultPrompt": ["Find NOTAMs within 25 NM of KSEA.", "Find NOTAMs within 10 NM of KSEA to KPDX at 5500 feet MSL.", "Check my NOTAM plugin configuration."]
+    "defaultPrompt": [
+      "Find NOTAMs within 25 NM of KSEA.",
+      "Find NOTAMs within 10 NM of KSEA to KPDX at 5500 feet MSL.",
+      "Check my NOTAM plugin configuration.",
+      "Use staging to find NOTAMs within 25 NM of KPAO."
+    ]
   },
   "mcpServers": "./.mcp.json"
 }

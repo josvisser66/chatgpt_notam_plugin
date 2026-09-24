@@ -3,10 +3,26 @@ from __future__ import annotations
 import os
 import tomllib
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
+
+EnvironmentSelection = Annotated[
+    Literal["auto", "production", "staging"],
+    Field(
+        description=(
+            "Auto prefers production with configured staging fallback for new requests. "
+            "Choose staging when the user requests test data, or production for production only. "
+            "Explicit selections never fall back. Continuations/downloads retain their origin."
+        )
+    ),
+]
+TEST_HOSTS = {
+    "api-staging.cgifederal-aim.com",
+    "api-fit.cgifederal-aim.com",
+    "api-sit.cgifederal-aim.com",
+}
 
 
 class ConfigurationError(ValueError):
@@ -69,6 +85,40 @@ class FAAConfig(StrictModel):
         return f"{self.environment_url}/nmsapi"
 
 
+class FAAProfile(FAAConfig):
+    """An unfilled profile is allowed alongside another configured environment."""
+
+    key: SecretStr | None = None
+    secret: SecretStr | None = None
+    environment_url: str | None = None
+
+    @field_validator("environment_url")
+    @classmethod
+    def environment_is_origin(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        return super().environment_is_origin(value)
+
+    @field_validator("key", "secret")
+    @classmethod
+    def real_secret(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return None
+        raw = value.get_secret_value()
+        if not raw.strip() or raw.startswith("REPLACE_"):
+            return None
+        return super().real_secret(value)
+
+    @property
+    def configured(self) -> bool:
+        return self.key is not None and self.secret is not None and self.environment_url is not None
+
+
+class FAAEnvironments(StrictModel):
+    production: FAAProfile | None = None
+    staging: FAAProfile | None = None
+
+
 class ServiceConfig(StrictModel):
     state_file: Path = Path("state/rate-limits.sqlite3")
     downloads_directory: Path = Path("state/downloads")
@@ -87,20 +137,99 @@ class LimitsConfig(StrictModel):
 
 
 class Settings(StrictModel):
-    faa: FAAConfig
+    faa: FAAConfig | FAAEnvironments
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
+
+    def profiles(self) -> dict[str, FAAConfig | FAAProfile]:
+        if isinstance(self.faa, FAAConfig):
+            name = (
+                "staging"
+                if urlsplit(self.faa.environment_url).hostname in TEST_HOSTS
+                else "production"
+            )
+            return {name: self.faa}
+        return {
+            name: profile
+            for name in ("production", "staging")
+            if (profile := getattr(self.faa, name)) is not None
+        }
+
+    def candidates(self, environment: EnvironmentSelection = "auto") -> list[str]:
+        if environment not in {"auto", "production", "staging"}:
+            raise ConfigurationError("Environment must be auto, production, or staging.")
+        configured = {
+            name
+            for name, p in self.profiles().items()
+            if not isinstance(p, FAAProfile) or p.configured
+        }
+        if environment != "auto":
+            if environment not in configured:
+                raise ConfigurationError(
+                    f"FAA {environment} is not configured with a key, secret, and URL."
+                )
+            return [environment]
+        names = [name for name in ("production", "staging") if name in configured]
+        if not names:
+            raise ConfigurationError("Configure FAA credentials in faa.production or faa.staging.")
+        return names
+
+    def for_environment(self, environment: str) -> Settings:
+        self.candidates(environment)
+        profile = self.profiles()[environment]
+        return Settings(
+            faa=FAAConfig.model_validate(profile.model_dump()),
+            service=self.service,
+            limits=self.limits,
+        )
+
+    def status(self, environment: EnvironmentSelection = "auto") -> dict:
+        selected = self.candidates(environment)[0]
+        profiles = self.profiles()
+        environments = {}
+        for name in ("production", "staging"):
+            profile = profiles.get(name)
+            ready = profile is not None and (
+                not isinstance(profile, FAAProfile) or profile.configured
+            )
+            environments[name] = {"configured": ready}
+            if profile:
+                environments[name].update(
+                    {
+                        "environment_url": profile.environment_url,
+                        "auth_url": profile.token_url
+                        if profile.environment_url
+                        else profile.auth_url,
+                        "credentials": "present; not tested with FAA"
+                        if profile.key and profile.secret
+                        else "missing or placeholders",
+                    }
+                )
+            if ready:
+                environments[name]["data_interval_seconds"] = self.for_environment(
+                    name
+                ).data_interval
+        active = self.for_environment(selected)
+        return {
+            "configured": True,
+            "transport": "stdio",
+            "requested_environment": environment,
+            "environment": selected,
+            "environment_url": active.faa.environment_url,
+            "response_format": active.faa.response_format,
+            "data_interval_seconds": active.data_interval,
+            "credentials": "present; not tested with FAA",
+            "availability": "not tested; selection is based on local configuration only",
+            "environments": environments,
+        }
 
     @property
     def data_interval(self) -> float:
         if self.limits.data_interval_seconds is not None:
             return self.limits.data_interval_seconds
-        test_hosts = {
-            "api-staging.cgifederal-aim.com",
-            "api-fit.cgifederal-aim.com",
-            "api-sit.cgifederal-aim.com",
-        }
-        return 1.0 if urlsplit(self.faa.environment_url).hostname in test_hosts else 180.0
+        if isinstance(self.faa, FAAEnvironments):
+            return self.for_environment(self.candidates()[0]).data_interval
+        return 1.0 if urlsplit(self.faa.environment_url).hostname in TEST_HOSTS else 180.0
 
 
 def load_settings(path: str | Path | None = None) -> Settings:
@@ -108,6 +237,7 @@ def load_settings(path: str | Path | None = None) -> Settings:
     try:
         with config_path.open("rb") as stream:
             settings = Settings.model_validate(tomllib.load(stream))
+            settings.candidates()
     except OSError:
         raise ConfigurationError(
             "Cannot read configuration file. Run notam-plugin init first."

@@ -13,7 +13,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 import httpx
 
-from .config import Settings
+from .config import FAAConfig, Settings
 from .errors import NmsError
 from .models import ChecklistQuery, Classification, LocationSeriesQuery, NotamQuery, ResponseFormat
 from .rate_limit import RateLimiter
@@ -21,7 +21,10 @@ from .rate_limit import RateLimiter
 
 class NmsClient:
     def __init__(self, settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None):
+        if not isinstance(settings.faa, FAAConfig):
+            raise ValueError("Bind NmsClient to one FAA environment first.")
         self.settings = settings
+        self.environment = settings.candidates()[0]
         self.http = httpx.AsyncClient(
             timeout=settings.faa.timeout_seconds,
             follow_redirects=False,
@@ -72,10 +75,12 @@ class NmsClient:
                 if authentication
                 else "FAA rejected access to this endpoint."
             )
-            raise NmsError(message)
+            raise NmsError(message, status_code=status, fallback_allowed=True)
         if status >= 400 or 300 <= status < 400:
             raise NmsError(
-                f"FAA {'authentication' if authentication else 'request'} failed (HTTP {status})."
+                f"FAA {'authentication' if authentication else 'request'} failed (HTTP {status}).",
+                status_code=status,
+                fallback_allowed=status >= 500 or (authentication and status == 400),
             )
 
     async def _access_token(self, rejected_token: str | None = None) -> str:
@@ -109,9 +114,13 @@ class NmsClient:
                 ):
                     raise ValueError
             except (ValueError, KeyError, TypeError):
-                raise NmsError("FAA returned an invalid authentication response.") from None
+                raise NmsError(
+                    "FAA returned an invalid authentication response.", fallback_allowed=True
+                ) from None
             except httpx.HTTPError:
-                raise NmsError("Could not reach the FAA authentication endpoint.") from None
+                raise NmsError(
+                    "Could not reach the FAA authentication endpoint.", fallback_allowed=True
+                ) from None
             self._token = token
             self._token_expiry = time.monotonic() + expires - min(60, expires * 0.1)
             return token
@@ -156,17 +165,21 @@ class NmsClient:
                         )
                     )
             except (ValueError, UnicodeError):
-                raise NmsError("FAA returned invalid JSON.") from None
+                raise NmsError("FAA returned invalid JSON.", fallback_allowed=True) from None
             except httpx.HTTPError:
-                raise NmsError("FAA request timed out or could not be completed.") from None
+                raise NmsError(
+                    "FAA request timed out or could not be completed.", fallback_allowed=True
+                ) from None
             if not isinstance(payload, dict) or payload.get("status") not in {"Success", "Failure"}:
-                raise NmsError("FAA returned an unexpected response envelope.")
+                raise NmsError(
+                    "FAA returned an unexpected response envelope.", fallback_allowed=True
+                )
             if payload["status"] == "Failure" or payload.get("errors"):
                 raise NmsError(
                     "FAA reported a failed or incomplete query; no complete result is available."
                 )
             if not isinstance(payload.get("data"), dict):
-                raise NmsError("FAA response is missing its data object.")
+                raise NmsError("FAA response is missing its data object.", fallback_allowed=True)
             return payload
         raise NmsError("FAA rejected the renewed access token.")
 

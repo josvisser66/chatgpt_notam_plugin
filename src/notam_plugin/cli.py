@@ -8,15 +8,19 @@ from pathlib import Path
 
 from .config import ConfigurationError, load_settings
 
-TEMPLATE = """[faa]
-# KEY and SECRET provided by FAA. Enter them locally; do not paste them into chat.
-key = "REPLACE_WITH_FAA_KEY"
-secret = "REPLACE_WITH_FAA_SECRET"
+TEMPLATE = """# Fill in one or both environments with credentials issued by FAA.
+# Missing, empty, or REPLACE_ credentials leave that profile unconfigured.
+# Requests prefer production, with staging fallback when production is unavailable.
+[faa.production]
+key = "REPLACE_WITH_PRODUCTION_FAA_KEY"
+secret = "REPLACE_WITH_PRODUCTION_FAA_SECRET"
+environment_url = "https://api-nms.aim.faa.gov"
+response_format = "GEOJSON"
 
-# Host only, without /nmsapi or /v1. This defaults to pre-production.
+[faa.staging]
+key = "REPLACE_WITH_STAGING_FAA_KEY"
+secret = "REPLACE_WITH_STAGING_FAA_SECRET"
 environment_url = "https://api-staging.cgifederal-aim.com"
-# Production: https://api-nms.aim.faa.gov
-# FIT: https://api-fit.cgifederal-aim.com
 response_format = "GEOJSON"
 
 [service]
@@ -52,14 +56,20 @@ def main() -> None:
             parser.exit(
                 1, "Could not create configuration. Existing files are never overwritten.\n"
             )
-        print(f"Created {path}. Fill in the FAA key and secret locally.")
+        print(f"Created {path}. Fill in FAA credentials for production and/or staging locally.")
         return
     try:
         settings = load_settings(path)
     except ConfigurationError as exc:
         parser.exit(1, f"{exc}\n")
-    print(f"Configuration valid. FAA environment: {settings.faa.environment_url}")
-    print("Credentials are present; no network request was made.")
+    status = settings.status()
+    print(f"Configuration valid. Preferred environment: {status['environment']}")
+    for name, profile in status["environments"].items():
+        state = "configured" if profile["configured"] else "not configured"
+        print(f"{name}: {state}; {profile.get('environment_url', 'no URL supplied')}")
+    print(
+        "Availability and credentials have not been tested with FAA; no network request was made."
+    )
 
 
 if __name__ == "__main__":
