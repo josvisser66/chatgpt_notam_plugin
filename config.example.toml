@@ -1,0 +1,35 @@
+[faa]
+# FAA KEY = OAuth client ID; FAA SECRET = OAuth client secret.
+key = "REPLACE_WITH_FAA_KEY"
+secret = "REPLACE_WITH_FAA_SECRET"
+
+# Use the host URL (no /nmsapi or /v1 suffix).
+# Pre-production:
+environment_url = "https://api-staging.cgifederal-aim.com"
+# Production: https://api-nms.aim.faa.gov
+# FIT: https://api-fit.cgifederal-aim.com
+# Authentication and API URLs are derived from the same environment URL.
+# Optional override if FAA provides a different authorization URL:
+# auth_url = "https://api-staging.cgifederal-aim.com/v1/auth/token"
+response_format = "GEOJSON"
+timeout_seconds = 12
+
+[service]
+# Relative paths resolve beside this configuration file, not the working directory.
+state_file = "state/rate-limits.sqlite3"
+downloads_directory = "state/downloads"
+navigation_file = "state/navigation.json"
+route_search_directory = "state/route-searches"
+route_requests_per_call = 5
+max_tool_characters = 90000
+max_download_bytes = 500000000
+
+# Default limits follow the FAQ. Production/custom hosts: 180 seconds between
+# data calls. Known FAA test hosts: 1 second. Content calls: 0.5 seconds.
+# Delta calls: 180 seconds. Bulk calls: 86400 seconds across classifications.
+# Override only to match the limits FAA has approved for your account:
+# [limits]
+# data_interval_seconds = 180
+# content_interval_seconds = 0.5
+# delta_interval_seconds = 180
+# bulk_interval_seconds = 86400

@@ -1,0 +1,689 @@
+[
+  {
+    "name": "get_notam_status",
+    "description": "Check local configuration without contacting FAA or revealing credentials.",
+    "inputSchema": {
+      "properties": {},
+      "title": "get_notam_statusArguments",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "search_notams",
+    "description": "Search FAA NOTAMs. Filters combine with AND. Location accepts FAA or ICAO codes.\n\nSupply latitude, longitude, radius (0-100 NM) together; both effective dates together.\nUTC dates use YYYY-MM-DDTHH:MM:SSZ. lastUpdatedDate looks back at most 24 hours and\nincludes changes/cancellations. Classification alone requests a bulk content path.\nAIXM source XML or GeoJSON source objects are preserved, including cancellation data.\n",
+    "inputSchema": {
+      "$defs": {
+        "AltitudeFilter": {
+          "additionalProperties": false,
+          "properties": {
+            "feet": {
+              "description": "For FL180 use 18000 feet, reference FL",
+              "maximum": 100000,
+              "minimum": -2000,
+              "title": "Feet",
+              "type": "number"
+            },
+            "reference": {
+              "default": "MSL",
+              "enum": [
+                "MSL",
+                "AGL",
+                "FL"
+              ],
+              "title": "Reference",
+              "type": "string"
+            }
+          },
+          "required": [
+            "feet"
+          ],
+          "title": "AltitudeFilter",
+          "type": "object"
+        },
+        "NotamQuery": {
+          "additionalProperties": false,
+          "properties": {
+            "accountability": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-zA-Z0-9]{1,8}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Accountability"
+            },
+            "classification": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "INTERNATIONAL",
+                    "MILITARY",
+                    "LOCAL_MILITARY",
+                    "DOMESTIC",
+                    "FDC"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Classification"
+            },
+            "location": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-zA-Z0-9]{3,4}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Location"
+            },
+            "effectiveEndDate": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Effectiveenddate"
+            },
+            "effectiveStartDate": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Effectivestartdate"
+            },
+            "feature": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "RWY",
+                    "TWY",
+                    "APRON",
+                    "AD",
+                    "OBST",
+                    "NAV",
+                    "COM",
+                    "SVC",
+                    "AIRSPACE",
+                    "ODP",
+                    "SID",
+                    "STAR",
+                    "CHART",
+                    "DATA",
+                    "DVA",
+                    "IAP",
+                    "VFP",
+                    "ROUTE",
+                    "SPECIAL",
+                    "SECURITY"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Feature"
+            },
+            "freeText": {
+              "anyOf": [
+                {
+                  "pattern": "^[ /.\\-()\\w]{1,80}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Freetext"
+            },
+            "nmsId": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9]{16}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Nmsid"
+            },
+            "lastUpdatedDate": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Lastupdateddate"
+            },
+            "latitude": {
+              "anyOf": [
+                {
+                  "maximum": 90,
+                  "minimum": -90,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Latitude"
+            },
+            "longitude": {
+              "anyOf": [
+                {
+                  "maximum": 180,
+                  "minimum": -180,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Longitude"
+            },
+            "radius": {
+              "anyOf": [
+                {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Nautical miles",
+              "title": "Radius"
+            },
+            "notamNumber": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-zA-Z0-9/]{1,12}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Notamnumber"
+            }
+          },
+          "title": "NotamQuery",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "filters": {
+          "$ref": "#/$defs/NotamQuery"
+        },
+        "response_format": {
+          "anyOf": [
+            {
+              "enum": [
+                "GEOJSON",
+                "AIXM"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response Format"
+        },
+        "altitude": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AltitudeFilter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "filters"
+      ],
+      "title": "search_notamsArguments",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "get_notam_checklist",
+    "description": "Get NOTAM identifiers and update times by location, classification or accountability.\n\nAn empty filter object requests all active identifiers. These are checklist entries,\nnot full NOTAM text. Search by nmsId to retrieve a specific NOTAM.\n",
+    "inputSchema": {
+      "$defs": {
+        "ChecklistQuery": {
+          "additionalProperties": false,
+          "properties": {
+            "accountability": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-zA-Z0-9]{1,8}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Accountability"
+            },
+            "classification": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "INTERNATIONAL",
+                    "MILITARY",
+                    "LOCAL_MILITARY",
+                    "DOMESTIC",
+                    "FDC"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Classification"
+            },
+            "location": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-zA-Z0-9]{3,4}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Location"
+            }
+          },
+          "title": "ChecklistQuery",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "filters": {
+          "$ref": "#/$defs/ChecklistQuery"
+        }
+      },
+      "required": [
+        "filters"
+      ],
+      "title": "get_notam_checklistArguments",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "get_location_series",
+    "description": "Get FAA location-series mappings. Empty filters return all active mappings.\n\nlastUpdatedDate must be a UTC timestamp within five days; delta results can include\nnew (N), updated (U) and deleted (D) mappings.\n",
+    "inputSchema": {
+      "$defs": {
+        "LocationSeriesQuery": {
+          "additionalProperties": false,
+          "properties": {
+            "lastUpdatedDate": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Lastupdateddate"
+            }
+          },
+          "title": "LocationSeriesQuery",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "filters": {
+          "$ref": "#/$defs/LocationSeriesQuery"
+        }
+      },
+      "required": [
+        "filters"
+      ],
+      "title": "get_location_seriesArguments",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "get_notam_initial_load",
+    "description": "Get a protected content path for an AIXM bulk snapshot, optionally by classification.\n\nThe path expires in about five minutes. Use download_notam_content to save it locally.\nBulk requests share a daily limit. This requests metadata, not the actual NOTAM text.\n",
+    "inputSchema": {
+      "properties": {
+        "classification": {
+          "anyOf": [
+            {
+              "enum": [
+                "INTERNATIONAL",
+                "MILITARY",
+                "LOCAL_MILITARY",
+                "DOMESTIC",
+                "FDC"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classification"
+        }
+      },
+      "title": "get_notam_initial_loadArguments",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "download_notam_content",
+    "description": "Download an FAA content path into a new file in the configured downloads directory.\n\nUse the data.url from a bulk request. Returns the local file path and byte count;\nit does not parse the compressed NOTAMs. Only the configured FAA host is permitted.\n",
+    "inputSchema": {
+      "properties": {
+        "content_path": {
+          "title": "Content Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content_path"
+      ],
+      "title": "download_notam_contentArguments",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "resolve_notam_location",
+    "description": "Resolve an airport FAA/ICAO ID or waypoint code using current public FAA NASR data.\n\nIncludes VFR waypoints. Returns all candidates; never guess an ambiguous position.\nNavigation data downloads on first use and refreshes when its 28-day cycle expires.\n",
+    "inputSchema": {
+      "properties": {
+        "identifier": {
+          "title": "Identifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "identifier"
+      ],
+      "title": "resolve_notam_locationArguments",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "notams_near_airport",
+    "description": "Find NOTAMs within 0-100 nautical miles of an airport's FAA reference position.\n\nUses a geographic query, so nearby airspace/other-airport NOTAMs may also be returned.\nAirport accepts an FAA or ICAO identifier. Results preserve the FAA GeoJSON data.\n",
+    "inputSchema": {
+      "$defs": {
+        "AltitudeFilter": {
+          "additionalProperties": false,
+          "properties": {
+            "feet": {
+              "description": "For FL180 use 18000 feet, reference FL",
+              "maximum": 100000,
+              "minimum": -2000,
+              "title": "Feet",
+              "type": "number"
+            },
+            "reference": {
+              "default": "MSL",
+              "enum": [
+                "MSL",
+                "AGL",
+                "FL"
+              ],
+              "title": "Reference",
+              "type": "string"
+            }
+          },
+          "required": [
+            "feet"
+          ],
+          "title": "AltitudeFilter",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "airport": {
+          "title": "Airport",
+          "type": "string"
+        },
+        "radius_nm": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Radius Nm",
+          "type": "number"
+        },
+        "altitude": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AltitudeFilter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "airport",
+        "radius_nm"
+      ],
+      "title": "notams_near_airportArguments",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "notams_along_route",
+    "description": "Search a corridor on EACH side of a route, in nautical miles, including end caps.\n\nRoute points can mix FAA/ICAO airport IDs, VFR waypoint IDs, and objects with latitude\nand longitude in decimal degrees. Segments follow WGS84 geodesics. Overlapping FAA\nsearches are deduplicated and geometrically filtered, with a conservative 100 m\nboundary tolerance. Check coverage_complete; resume partial searches using search_id.\nGeometry-less candidates are returned separately, never silently discarded.\n",
+    "inputSchema": {
+      "$defs": {
+        "AltitudeFilter": {
+          "additionalProperties": false,
+          "properties": {
+            "feet": {
+              "description": "For FL180 use 18000 feet, reference FL",
+              "maximum": 100000,
+              "minimum": -2000,
+              "title": "Feet",
+              "type": "number"
+            },
+            "reference": {
+              "default": "MSL",
+              "enum": [
+                "MSL",
+                "AGL",
+                "FL"
+              ],
+              "title": "Reference",
+              "type": "string"
+            }
+          },
+          "required": [
+            "feet"
+          ],
+          "title": "AltitudeFilter",
+          "type": "object"
+        },
+        "Coordinate": {
+          "additionalProperties": false,
+          "properties": {
+            "latitude": {
+              "maximum": 90,
+              "minimum": -90,
+              "title": "Latitude",
+              "type": "number"
+            },
+            "longitude": {
+              "maximum": 180,
+              "minimum": -180,
+              "title": "Longitude",
+              "type": "number"
+            }
+          },
+          "required": [
+            "latitude",
+            "longitude"
+          ],
+          "title": "Coordinate",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "route": {
+          "items": {
+            "anyOf": [
+              {
+                "maxLength": 12,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/Coordinate"
+              }
+            ]
+          },
+          "maxItems": 100,
+          "minItems": 2,
+          "title": "Route",
+          "type": "array"
+        },
+        "corridor_half_width_nm": {
+          "exclusiveMinimum": 0,
+          "maximum": 99,
+          "title": "Corridor Half Width Nm",
+          "type": "number"
+        },
+        "altitude": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AltitudeFilter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "route",
+        "corridor_half_width_nm"
+      ],
+      "title": "notams_along_routeArguments",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "continue_notam_route_search",
+    "description": "Continue a saved route search after its retry delay, without redoing completed circles.\n\nSearch progress survives server restarts. A completed search returns its saved snapshot;\ncall notams_along_route to start a fresh search when current data is needed.\n",
+    "inputSchema": {
+      "properties": {
+        "search_id": {
+          "title": "Search Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "search_id"
+      ],
+      "title": "continue_notam_route_searchArguments",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    }
+  }
+]

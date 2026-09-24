@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+config.toml
+config.*.toml
+!config.example.toml
+.env
+.env.*
+*.sqlite3*
+state/
+tmp/
+dist/
+build/
+.DS_Store
+# Generated launcher contains checkout-specific paths; regenerate after cloning.
+plugins/faa-notam/.mcp.json
